@@ -21,13 +21,13 @@ WORKDIR /code
 COPY pyproject.toml uv.lock /code/
 
 # Install project dependencies
-RUN uv sync --frozen
+RUN uv sync --frozen --no-install-project
 
 # Install the spaCy model used by the assignment
-RUN uv run python -m spacy download en_core_web_lg
+RUN /code/.venv/bin/python -m spacy download en_core_web_lg
 
 # Copy application code
 COPY ./app /code/app
 
 # Run FastAPI inside the container on port 80
-CMD ["uv", "run", "fastapi", "run", "app/main.py", "--port", "80"]
+CMD ["/code/.venv/bin/fastapi", "run", "app/main.py", "--port", "80"]
