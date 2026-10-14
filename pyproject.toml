@@ -9,6 +9,8 @@ dependencies = [
     "jupyter>=1.1.1",
     "pydantic>=2.13.5",
     "spacy>=3.8.16",
+    "torch>=2.14.1",
+    "torchvision>=0.29.1",
 ]
 
 [project.scripts]
@@ -23,3 +25,13 @@ members = [
     "sps_genai",
     "gentext-app",
 ]
+
+# CPU-only PyTorch wheels on Linux (Docker) to avoid pulling CUDA libraries
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

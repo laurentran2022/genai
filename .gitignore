@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# CIFAR10 dataset (downloaded automatically by torchvision)
+data/

@@ -1,5 +1,5 @@
 # Use an official Python runtime
-FROM python:3.12-slim-bookworm
+FROM python:3.13-slim-bookworm
 
 # Install curl and certificates
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -18,7 +18,7 @@ ENV PATH="/root/.local/bin/:$PATH"
 WORKDIR /code
 
 # Copy dependency files
-COPY pyproject.toml uv.lock /code/
+COPY pyproject.toml uv.lock .python-version /code/
 
 # Install project dependencies
 RUN uv sync --frozen --no-install-project
@@ -28,6 +28,8 @@ RUN /code/.venv/bin/python -m spacy download en_core_web_lg
 
 # Copy application code
 COPY ./app /code/app
+COPY ./helper_lib /code/helper_lib
+COPY ./models /code/models
 
 # Run FastAPI inside the container on port 80
 CMD ["/code/.venv/bin/fastapi", "run", "app/main.py", "--port", "80"]
