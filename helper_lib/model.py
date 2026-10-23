@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -65,10 +66,59 @@ class EnhancedCNN(nn.Module):
         return self.fc2(x)
 
 
+class Generator(nn.Module):
+    """Assignment 3 GAN generator: noise vector (N, 100) -> 1x28x28 image in [-1, 1]."""
+
+    def __init__(self, z_dim=100):
+        super(Generator, self).__init__()
+        self.z_dim = z_dim
+        self.fc = nn.Linear(z_dim, 7 * 7 * 128)
+        self.deconv1 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)  # 7x7 -> 14x14
+        self.bn1 = nn.BatchNorm2d(64)
+        self.deconv2 = nn.ConvTranspose2d(64, 1, kernel_size=4, stride=2, padding=1)  # 14x14 -> 28x28
+
+    def forward(self, z):
+        x = self.fc(z)
+        x = x.view(x.size(0), 128, 7, 7)  # Reshape to 128x7x7
+        x = F.relu(self.bn1(self.deconv1(x)))
+        return torch.tanh(self.deconv2(x))
+
+
+class Discriminator(nn.Module):
+    """Assignment 3 GAN discriminator: 1x28x28 image -> probability that the image is real."""
+
+    def __init__(self):
+        super(Discriminator, self).__init__()
+        self.conv1 = nn.Conv2d(1, 64, kernel_size=4, stride=2, padding=1)  # 28x28 -> 14x14
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1)  # 14x14 -> 7x7
+        self.bn2 = nn.BatchNorm2d(128)
+        self.fc = nn.Linear(128 * 7 * 7, 1)
+
+    def forward(self, x):
+        x = F.leaky_relu(self.conv1(x), 0.2)
+        x = F.leaky_relu(self.bn2(self.conv2(x)), 0.2)
+        x = x.view(x.size(0), -1)  # Flatten to 128*7*7 = 6272
+        return torch.sigmoid(self.fc(x))
+
+
+class GAN(nn.Module):
+    """Container holding the generator and discriminator so they can be built, saved and loaded together."""
+
+    def __init__(self, z_dim=100):
+        super(GAN, self).__init__()
+        self.z_dim = z_dim
+        self.generator = Generator(z_dim)
+        self.discriminator = Discriminator()
+
+    def forward(self, z):
+        return self.generator(z)
+
+
 MODELS = {
     "FCNN": FCNN,
     "CNN": CNN,
     "EnhancedCNN": EnhancedCNN,
+    "GAN": GAN,
 }
 
 

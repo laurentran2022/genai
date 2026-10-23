@@ -2,12 +2,14 @@ import io
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
 from bigram_model import BigramModel
 import spacy
 import torch
+from torchvision.utils import save_image
 
 # Make the project root importable so the API can use helper_lib
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -28,6 +30,9 @@ CIFAR10_CLASSES = [
 # Load the CIFAR10 classifier once at startup
 cnn_model = load_model(get_model("CNN"), PROJECT_ROOT / "models" / "cnn_cifar10.pth")
 cnn_transform = get_transform()
+
+# Load the MNIST GAN once at startup
+gan_model = load_model(get_model("GAN"), PROJECT_ROOT / "models" / "gan_mnist.pth")
 corpus = [
     "The Count of Monte Cristo is a novel written by Alexandre Dumas. It tells the story of Edmond Dantès, who is falsely imprisoned and later seeks revenge.",
     "this is another example sentence",
@@ -80,3 +85,15 @@ async def classify_image(file: UploadFile = File(...)):
         "predicted_class": CIFAR10_CLASSES[index.item()],
         "confidence": round(confidence.item(), 4),
     }
+
+
+@app.get("/generate_digits", response_class=Response)
+def generate_digits(num_samples: int = Query(16, ge=1, le=64)):
+    """Generate handwritten digits with the MNIST GAN and return them as a PNG grid."""
+    with torch.no_grad():
+        noise = torch.randn(num_samples, gan_model.z_dim)
+        images = gan_model.generator(noise) * 0.5 + 0.5  # Undo the [-1, 1] normalization
+
+    buffer = io.BytesIO()
+    save_image(images, buffer, format="png", nrow=min(num_samples, 8), padding=2)
+    return Response(content=buffer.getvalue(), media_type="image/png")
