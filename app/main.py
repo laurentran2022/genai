@@ -33,6 +33,11 @@ cnn_transform = get_transform()
 
 # Load the MNIST GAN once at startup
 gan_model = load_model(get_model("GAN"), PROJECT_ROOT / "models" / "gan_mnist.pth")
+
+# Load the CIFAR10 image generators once at startup
+ebm_model = load_model(get_model("EBM"), PROJECT_ROOT / "models" / "ebm_cifar10.pth")
+diffusion_model = load_model(get_model("Diffusion"), PROJECT_ROOT / "models" / "diffusion_cifar10.pth")
+
 corpus = [
     "The Count of Monte Cristo is a novel written by Alexandre Dumas. It tells the story of Edmond Dantès, who is falsely imprisoned and later seeks revenge.",
     "this is another example sentence",
@@ -87,6 +92,12 @@ async def classify_image(file: UploadFile = File(...)):
     }
 
 
+def png_grid_response(images, num_samples):
+    buffer = io.BytesIO()
+    save_image(images, buffer, format="png", nrow=min(num_samples, 8), padding=2)
+    return Response(content=buffer.getvalue(), media_type="image/png")
+
+
 @app.get("/generate_digits", response_class=Response)
 def generate_digits(num_samples: int = Query(16, ge=1, le=64)):
     """Generate handwritten digits with the MNIST GAN and return them as a PNG grid."""
@@ -94,6 +105,16 @@ def generate_digits(num_samples: int = Query(16, ge=1, le=64)):
         noise = torch.randn(num_samples, gan_model.z_dim)
         images = gan_model.generator(noise) * 0.5 + 0.5  # Undo the [-1, 1] normalization
 
-    buffer = io.BytesIO()
-    save_image(images, buffer, format="png", nrow=min(num_samples, 8), padding=2)
-    return Response(content=buffer.getvalue(), media_type="image/png")
+    return png_grid_response(images, num_samples)
+
+
+@app.get("/generate_ebm", response_class=Response)
+def generate_ebm(num_samples: int = Query(16, ge=1, le=64), steps: int = Query(256, ge=1, le=1000)):
+    """Generate CIFAR10-like images with the Energy Model and return them as a PNG grid."""
+    return png_grid_response(ebm_model.generate(num_samples, steps), num_samples)
+
+
+@app.get("/generate_diffusion", response_class=Response)
+def generate_diffusion(num_samples: int = Query(16, ge=1, le=64), steps: int = Query(50, ge=1, le=1000)):
+    """Generate CIFAR10-like images with the Diffusion Model and return them as a PNG grid."""
+    return png_grid_response(diffusion_model.generate(num_samples, steps), num_samples)

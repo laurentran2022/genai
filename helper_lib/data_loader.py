@@ -38,3 +38,17 @@ def get_mnist_loader(data_dir, batch_size=128, train=True):
         dataset, batch_size=batch_size, shuffle=train, num_workers=2
     )
     return loader
+
+
+def get_cifar10_generative_loader(data_dir, mean, std, batch_size=128, train=True):
+    """CIFAR10 at its native 32x32 with horizontal flips, for the image generators."""
+    transform = transforms.Compose([
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std),
+    ])
+    dataset = datasets.CIFAR10(root=data_dir, train=train, download=True, transform=transform)
+    loader = torch.utils.data.DataLoader(
+        dataset, batch_size=batch_size, shuffle=train, num_workers=2
+    )
+    return loader

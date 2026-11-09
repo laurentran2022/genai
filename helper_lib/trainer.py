@@ -1,3 +1,6 @@
+import random
+
+import numpy as np
 import torch
 
 
@@ -70,5 +73,107 @@ def train_gan(model, data_loader, criterion, optimizer, device='cpu', epochs=10)
 
         print(f"Epoch {epoch + 1}/{epochs}: D loss={running_d_loss / len(data_loader):.4f}, "
               f"G loss={running_g_loss / len(data_loader):.4f}")
+
+    return model
+
+
+def train_diffusion(model, data_loader, criterion, optimizer, device='cpu', epochs=10):
+    """Train a DiffusionModel to predict the noise added to normalized images.
+
+    criterion: the noise-prediction loss, e.g. nn.L1Loss()
+    """
+    model.to(device)
+    model.train()
+    step = 0
+
+    for epoch in range(epochs):
+        running_loss = 0.0
+
+        for images, _ in data_loader:  # Class labels are not used
+            images = images.to(device)
+            noises = torch.randn_like(images)
+            diffusion_times = torch.rand((images.size(0), 1, 1, 1), device=device)
+            noise_rates, signal_rates = model.schedule_fn(diffusion_times)
+            noisy_images = signal_rates * images + noise_rates * noises
+
+            loss = criterion(model(noisy_images, noise_rates ** 2), noises)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            step += 1
+            model.update_ema(step)
+            running_loss += loss.item()
+
+        print(f"Epoch {epoch + 1}/{epochs}: Loss={running_loss / len(data_loader):.4f}", flush=True)
+
+    return model
+
+
+class SampleBuffer:
+    """Replay buffer of Langevin samples, so sampling does not restart from noise at every step."""
+
+    def __init__(self, model, device, batch_size=128, max_size=8192):
+        self.model = model
+        self.device = device
+        self.batch_size = batch_size
+        self.max_size = max_size
+        self.examples = [self.random_images(1) for _ in range(batch_size)]
+
+    def random_images(self, count):
+        return torch.rand((count, 3, 32, 32), device=self.device) * 2 - 1
+
+    def sample(self, steps, step_size, noise):
+        # Restart around 5% of the chains from noise and continue the rest from the buffer
+        n_new = np.random.binomial(self.batch_size, 0.05)
+        old_images = torch.cat(random.choices(self.examples, k=self.batch_size - n_new), dim=0)
+        images = torch.cat([self.random_images(n_new), old_images], dim=0)
+
+        new_images = self.model.langevin(images, steps, step_size, noise)
+
+        self.examples = (list(torch.split(new_images, 1, dim=0)) + self.examples)[:self.max_size]
+        return new_images
+
+
+def train_ebm(model, data_loader, optimizer, device='cpu', epochs=10, alpha=0.1, steps=60, step_size=10, noise=0.005):
+    """Train an EnergyModel with contrastive divergence on images in [-1, 1].
+
+    alpha: weight of the energy magnitude regularizer
+    steps, step_size, noise: Langevin dynamics settings for the negative samples
+    """
+    model.to(device)
+    model.train()
+    buffer = SampleBuffer(model, device, batch_size=data_loader.batch_size)
+
+    for epoch in range(epochs):
+        running_loss, running_real, running_fake = 0.0, 0.0, 0.0
+
+        for real, _ in data_loader:  # Class labels are not used
+            real = real.to(device)
+            real = (real + torch.randn_like(real) * noise).clamp(-1.0, 1.0)
+            fake = buffer.sample(steps, step_size, noise)
+
+            real_out = model(real)
+            fake_out = model(fake)
+
+            # Lower the energy of real images and raise the energy of generated ones
+            cdiv_loss = real_out.mean() - fake_out.mean()
+            reg_loss = alpha * (real_out.pow(2).mean() + fake_out.pow(2).mean())
+            loss = cdiv_loss + reg_loss
+            if not torch.isfinite(loss):
+                raise RuntimeError(f"EBM loss became {loss.item()} in epoch {epoch + 1}")
+
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
+            optimizer.step()
+
+            running_loss += loss.item()
+            running_real += real_out.mean().item()
+            running_fake += fake_out.mean().item()
+
+        batches = len(data_loader)
+        print(f"Epoch {epoch + 1}/{epochs}: Loss={running_loss / batches:.4f}, "
+              f"E(real)={running_real / batches:.4f}, E(fake)={running_fake / batches:.4f}", flush=True)
 
     return model
